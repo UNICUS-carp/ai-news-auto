@@ -364,7 +364,8 @@ def llm_fact_check_article(source_item: Dict, generated_html: str, client) -> Di
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
             max_tokens=1500,
-            temperature=0.0
+            temperature=0.0,
+            timeout=20.0  # 20秒でタイムアウト
         )
 
         response_text = "".join([p.text for p in msg.content if p.type == "text"]).strip()
