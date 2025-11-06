@@ -7,7 +7,7 @@ from dotenv import dotenv_values
 from anthropic import Anthropic
 import requests
 from model_helper import create_message_with_fallback
-from fact_checker import fact_check_article, print_fact_check_result
+from fact_checker import fact_check_article, print_fact_check_result, llm_fact_check_article, print_llm_fact_check_result
 from requests.auth import HTTPBasicAuth
 from difflib import SequenceMatcher
 
@@ -405,17 +405,29 @@ HTMLのみで出力してください。Markdown禁止。コードブロック�
             print("❌ 生成が空。次の候補へ。")
             continue
 
-        # ファクトチェック実行
-        print("\n[ファクトチェック中...]")
+        # Phase 1: ルールベースのファクトチェック
+        print("\n[Phase 1: ルールベースのファクトチェック中...]")
         fact_check_result = fact_check_article(best, html)
         print_fact_check_result(fact_check_result)
 
         if not fact_check_result["passed"]:
-            print(f"❌ ファクトチェック不合格。この記事を破棄して次の候補へ。\n")
+            print(f"❌ Phase 1 不合格。この記事を破棄して次の候補へ。\n")
             continue
 
-        # ファクトチェック合格 → 投稿処理
-        print("✅ ファクトチェック合格！記事を投稿します。\n")
+        print("✅ Phase 1 合格！")
+
+        # Phase 2: LLMベースのファクトチェック
+        print("\n[Phase 2: LLMベースのファクトチェック中...]")
+        llm_result = llm_fact_check_article(best, html, client)
+        print_llm_fact_check_result(llm_result)
+
+        if not llm_result["passed"]:
+            print(f"❌ Phase 2 不合格（スコア: {llm_result['score']}/100）。この記事を破棄して次の候補へ。\n")
+            continue
+
+        # 両方のファクトチェック合格 → 投稿処理
+        print(f"✅ Phase 2 合格（スコア: {llm_result['score']}/100）！")
+        print("✅ 全てのファクトチェックに合格！記事を投稿します。\n")
 
         meta=""
         m=re.search(r'<p[^>]*data-meta=["\\\']description["\\\'][^>]*>(.*?)</p>', html, flags=re.I|re.S)

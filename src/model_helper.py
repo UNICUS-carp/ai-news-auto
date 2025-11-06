@@ -36,7 +36,7 @@ def get_temperature():
 
 
 def create_message_with_fallback(client: Anthropic, system: str, messages: list,
-                                  max_tokens: int = None, temperature: float = None):
+                                  max_tokens: int = None, temperature: float = None, timeout: float = None):
     """
     フォールバック機能付きでClaudeメッセージを作成
 
@@ -46,6 +46,7 @@ def create_message_with_fallback(client: Anthropic, system: str, messages: list,
         messages: メッセージリスト
         max_tokens: 最大トークン数（Noneの場合は設定ファイルから取得）
         temperature: 温度パラメータ（Noneの場合は設定ファイルから取得）
+        timeout: タイムアウト秒数（Noneの場合はデフォルト値を使用）
 
     Returns:
         APIレスポンス
@@ -65,13 +66,17 @@ def create_message_with_fallback(client: Anthropic, system: str, messages: list,
 
     for model in models:
         try:
-            return client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system,
-                messages=messages
-            )
+            kwargs = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system,
+                "messages": messages
+            }
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+
+            return client.messages.create(**kwargs)
         except APIError as e:
             # 404エラー（モデルが存在しない）の場合は次のモデルを試行
             if "404" in str(e) or "not_found" in str(e).lower():
