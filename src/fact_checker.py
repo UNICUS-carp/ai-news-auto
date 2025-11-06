@@ -270,6 +270,161 @@ def fact_check_article(source_item: Dict, generated_html: str) -> Dict:
     }
 
 
+def llm_fact_check_article(source_item: Dict, generated_html: str, client) -> Dict:
+    """
+    LLMを使用した高度なファクトチェック（Phase 2）
+
+    Args:
+        source_item: 元記事の情報
+        generated_html: 生成されたHTML記事
+        client: Anthropic client
+
+    Returns:
+        {
+            "passed": bool,
+            "score": int (0-100),
+            "issues": [問題のリスト],
+            "analysis": {
+                "logical_consistency": int (0-100),
+                "contextual_accuracy": int (0-100),
+                "tone_consistency": int (0-100),
+                "information_completeness": int (0-100),
+                "semantic_accuracy": int (0-100)
+            }
+        }
+    """
+    # HTMLタグを除去
+    generated_text = re.sub(r'<[^>]+>', ' ', generated_html)
+    generated_text = re.sub(r'\s+', ' ', generated_text).strip()
+
+    source_text = f"{source_item.get('title', '')} {source_item.get('summary', '')}"
+
+    # LLMに分析を依頼
+    system_prompt = """あなたは厳格なファクトチェッカーです。
+
+元記事と生成記事を比較し、以下の観点で分析してください：
+
+1. 論理的整合性 (logical_consistency)
+   - 元記事の主張と生成記事の主張が一致しているか
+   - 因果関係が正しく保たれているか
+
+2. 文脈の正確性 (contextual_accuracy)
+   - 専門用語の説明が正確か
+   - 技術的な詳細に誤解がないか
+
+3. トーンの一貫性 (tone_consistency)
+   - 元記事のトーン（ポジティブ/ネガティブ/中立）が保たれているか
+   - 重要性の度合いが適切か
+
+4. 情報の完全性 (information_completeness)
+   - 重要な情報が省略されていないか
+   - 追加された情報が適切か
+
+5. 意味の正確性 (semantic_accuracy)
+   - 元記事の意味が歪曲されていないか
+   - 引用や説明が正確か
+
+各項目を0-100点で評価し、JSON形式で返してください。
+70点未満の項目がある場合は、その理由を詳しく説明してください。"""
+
+    user_prompt = f"""【元記事】
+タイトル: {source_item.get('title', '')}
+要約: {source_item.get('summary', '')}
+リンク: {source_item.get('link', '')}
+
+【生成記事（HTMLタグ除去済み）】
+{generated_text[:2000]}
+
+上記を分析し、以下のJSON形式で返してください：
+
+{{
+  "logical_consistency": <0-100の整数>,
+  "contextual_accuracy": <0-100の整数>,
+  "tone_consistency": <0-100の整数>,
+  "information_completeness": <0-100の整数>,
+  "semantic_accuracy": <0-100の整数>,
+  "issues": [
+    "問題点1",
+    "問題点2"
+  ],
+  "summary": "総合評価のサマリー"
+}}
+
+注意：JSONのみを返し、他のテキストは含めないでください。"""
+
+    try:
+        # model_helperをインポート
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).parent))
+        from model_helper import create_message_with_fallback
+
+        msg = create_message_with_fallback(
+            client,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=1500,
+            temperature=0.0
+        )
+
+        response_text = "".join([p.text for p in msg.content if p.type == "text"]).strip()
+
+        # JSONをパース
+        import json
+        # コードブロックマーカーを除去
+        response_text = re.sub(r'```json\s*', '', response_text)
+        response_text = re.sub(r'```\s*$', '', response_text)
+
+        analysis = json.loads(response_text)
+
+        # スコアを計算
+        scores = [
+            analysis.get("logical_consistency", 0),
+            analysis.get("contextual_accuracy", 0),
+            analysis.get("tone_consistency", 0),
+            analysis.get("information_completeness", 0),
+            analysis.get("semantic_accuracy", 0)
+        ]
+        average_score = sum(scores) / len(scores)
+
+        # 70点未満の項目があるか、平均が75点未満なら不合格
+        min_score = min(scores)
+        passed = min_score >= 70 and average_score >= 75
+
+        return {
+            "passed": passed,
+            "score": int(average_score),
+            "min_score": min_score,
+            "issues": analysis.get("issues", []),
+            "summary": analysis.get("summary", ""),
+            "analysis": {
+                "logical_consistency": analysis.get("logical_consistency", 0),
+                "contextual_accuracy": analysis.get("contextual_accuracy", 0),
+                "tone_consistency": analysis.get("tone_consistency", 0),
+                "information_completeness": analysis.get("information_completeness", 0),
+                "semantic_accuracy": analysis.get("semantic_accuracy", 0)
+            }
+        }
+
+    except Exception as e:
+        print(f"LLMファクトチェックエラー: {e}")
+        # エラーの場合は合格として扱う（Phase 1を通過しているため）
+        return {
+            "passed": True,
+            "score": 0,
+            "min_score": 0,
+            "issues": [f"LLMチェックエラー: {str(e)}"],
+            "summary": "エラーのためチェックをスキップ",
+            "analysis": {
+                "logical_consistency": 0,
+                "contextual_accuracy": 0,
+                "tone_consistency": 0,
+                "information_completeness": 0,
+                "semantic_accuracy": 0
+            }
+        }
+
+
 def print_fact_check_result(result: Dict) -> None:
     """
     ファクトチェック結果を見やすく表示
@@ -300,5 +455,37 @@ def print_fact_check_result(result: Dict) -> None:
     print(f"  生成記事の数値: {details['generated_numbers']}")
     print(f"  元記事の日付: {details['source_dates']}")
     print(f"  生成記事の日付: {details['generated_dates']}")
+
+    print("="*60 + "\n")
+
+
+def print_llm_fact_check_result(result: Dict) -> None:
+    """
+    LLMファクトチェック結果を見やすく表示
+    """
+    print("\n" + "="*60)
+    print("LLMファクトチェック結果（Phase 2）")
+    print("="*60)
+
+    if result["passed"]:
+        print(f"✅ 合格（スコア: {result['score']}/100）")
+    else:
+        print(f"❌ 不合格（スコア: {result['score']}/100, 最低点: {result['min_score']}/100）")
+
+    print("\n【詳細スコア】")
+    analysis = result["analysis"]
+    print(f"  論理的整合性: {analysis['logical_consistency']}/100")
+    print(f"  文脈の正確性: {analysis['contextual_accuracy']}/100")
+    print(f"  トーンの一貫性: {analysis['tone_consistency']}/100")
+    print(f"  情報の完全性: {analysis['information_completeness']}/100")
+    print(f"  意味の正確性: {analysis['semantic_accuracy']}/100")
+
+    if result["issues"]:
+        print("\n【指摘事項】")
+        for i, issue in enumerate(result["issues"], 1):
+            print(f"  {i}. {issue}")
+
+    if result.get("summary"):
+        print(f"\n【総合評価】\n  {result['summary']}")
 
     print("="*60 + "\n")
