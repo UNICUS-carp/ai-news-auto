@@ -1,0 +1,13 @@
+feedparser
+requests
+python-dotenv
+pydantic
+openai
+beautifulsoup4
+html5lib
+tqdm
+langdetect
+
+anthropic
+
+pyyaml

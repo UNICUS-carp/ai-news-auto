@@ -1,0 +1,128 @@
+run_switch: true
+schedule:
+  times_jst:
+  - 09:00
+  - '18:00'
+claude:
+  models:
+    # Primary model (優先モデル)
+    - claude-sonnet-4-5-20250929
+    # Fallback models (フォールバック用、上から順に試行)
+    - claude-sonnet-4-20250514
+    - claude-3-opus-20240229
+  max_tokens: 3000
+  temperature: 0.2
+fetch:
+  max_candidates_per_run: 50
+  language_preference:
+  - ja
+  - en
+  feeds:
+  - url: https://openai.com/blog.rss
+    weight: 1.0
+  - url: https://ai.googleblog.com/feeds/posts/default
+    weight: 1.0
+  - url: https://www.theverge.com/ai-artificial-intelligence/rss/index.xml
+    weight: 0.8
+  - url: https://arstechnica.com/information-technology/ai/feed/
+    weight: 0.8
+  - url: https://www.technologyreview.com/topic/artificial-intelligence/feed/
+    weight: 0.8
+  - url: https://venturebeat.com/category/ai/feed/
+    weight: 0.8
+selection:
+  min_score: 0.6
+  dedup_window_hours: 72
+  blacklist_domains: []
+  whitelist_domains: []
+  max_scan_per_feed: 10
+  candidate_limit: 50
+  ja_priority: 1.0
+  en_priority: 0.8
+  keyword_boosts:
+  - AI
+  - 生成AI
+  - LLM
+  - GPT
+  - Claude
+  - OpenAI
+  - Google
+  - Anthropic
+  - Gemini
+  - Sora
+  - 安全性
+  - 規制
+  - 著作権
+  - 推論
+  - 推測
+  - 推論最適化
+  - RAG
+  - エージェント
+  - 推論コスト
+  - ベンチマーク
+  - MMLU
+  - MMMU
+  - 長文
+  - 動画生成
+  - 音声生成
+  - AIチップ
+  - NVIDIA
+  - H100
+  - B200
+  - DevDay
+  - Developer
+  - API
+  source_weights:
+    openai.com: 1.2
+    ai.googleblog.com: 1.1
+    googleblog.com: 1.1
+    anthropic.com: 1.2
+    theverge.com: 1.0
+    arstechnica.com: 1.0
+    technologyreview.com: 1.0
+    venturebeat.com: 0.9
+  domain_cooldown_days: 1
+  dup_window_days: 7
+  weights:
+    freshness: 0.3
+    source: 0.15
+    language: 0.1
+    keyword: 0.25
+    llm_virality: 0.3
+translate:
+  enabled: true
+  target_lang: ja
+generate:
+  title_max_len: 62
+  lead_max_chars: 180
+  summary_bullets: 5
+  body_target_chars: 2000  # より詳しい説明のため増加
+  meta_description_chars: 120
+  # 実用性重視設定
+  practical_focus:
+    include_implementation_steps: true
+    include_required_skills: true
+    include_cost_estimation: true
+    include_risk_analysis: true
+  # 信頼性向上設定
+  reliability:
+    show_information_freshness: true
+    distinguish_confirmed_vs_speculation: true
+    include_source_credibility: true
+wordpress:
+  tag_ids: []
+  status: publish
+  featured_image:
+    use_og_image: true
+    fallback_path: ''
+    random_media_ids:
+      - 7160  # ChatGPT Image 2025年10月9日 21_11_45 (最新)
+      - 7152  # ChatGPT Image 2025年10月9日 20_49_12
+      - 7151  # ChatGPT Image 2025年10月9日 20_49_17
+      - 7144  # ChatGPT Image 2025年10月9日 20_45_49
+  category_ids:
+  - 1
+  - 24
+  - 26
+logging:
+  level: INFO
