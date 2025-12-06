@@ -2,7 +2,7 @@ run_switch: true
 schedule:
   times_jst:
   - 09:00
-  - '18:00'
+  - '19:00'
 claude:
   models:
     # Primary model (優先モデル)
@@ -10,7 +10,7 @@ claude:
     # Fallback models (フォールバック用、上から順に試行)
     - claude-sonnet-4-20250514
     - claude-3-opus-20240229
-  max_tokens: 3000
+  max_tokens: 8000
   temperature: 0.2
 fetch:
   max_candidates_per_run: 50
@@ -18,18 +18,38 @@ fetch:
   - ja
   - en
   feeds:
+  # 公式ブログ（高優先度）
   - url: https://openai.com/blog.rss
-    weight: 1.0
+    weight: 1.2
   - url: https://ai.googleblog.com/feeds/posts/default
-    weight: 1.0
+    weight: 1.2
+  - url: https://www.anthropic.com/feed.xml
+    weight: 1.2
+  # 主要テックメディア
   - url: https://www.theverge.com/ai-artificial-intelligence/rss/index.xml
-    weight: 0.8
-  - url: https://arstechnica.com/information-technology/ai/feed/
-    weight: 0.8
+    weight: 1.0
+  - url: https://arstechnica.com/ai/feed/
+    weight: 1.0
   - url: https://www.technologyreview.com/topic/artificial-intelligence/feed/
-    weight: 0.8
+    weight: 1.0
   - url: https://venturebeat.com/category/ai/feed/
+    weight: 0.9
+  # 追加メディア
+  - url: https://techcrunch.com/category/artificial-intelligence/feed/
+    weight: 1.0
+  - url: https://www.wired.com/feed/tag/ai/latest/rss
+    weight: 0.9
+  - url: https://www.zdnet.com/topic/artificial-intelligence/rss.xml
     weight: 0.8
+  - url: https://www.engadget.com/tag/ai/rss.xml
+    weight: 0.8
+  # 日本語メディア
+  - url: https://www.itmedia.co.jp/aiplus/rss/aiplus.xml
+    weight: 1.1
+  - url: https://ledge.ai/feed/
+    weight: 1.0
+  - url: https://ainow.ai/feed/
+    weight: 1.0
 selection:
   min_score: 0.6
   dedup_window_hours: 72
@@ -39,6 +59,25 @@ selection:
   candidate_limit: 50
   ja_priority: 1.0
   en_priority: 0.8
+  # セール・商業記事の除外キーワード
+  excluded_keywords:
+  - Black Friday
+  - Cyber Monday
+  - セール
+  - 割引
+  - クーポン
+  - deal
+  - deals
+  - discount
+  - sale
+  - offer
+  - promo
+  - promotion
+  - coupon
+  - price drop
+  - 特価
+  - 安売り
+  - バーゲン
   keyword_boosts:
   - AI
   - 生成AI

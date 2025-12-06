@@ -10,8 +10,71 @@ from model_helper import create_message_with_fallback
 from fact_checker import fact_check_article, print_fact_check_result, llm_fact_check_article, print_llm_fact_check_result
 from requests.auth import HTTPBasicAuth
 from difflib import SequenceMatcher
+from bs4 import BeautifulSoup
 
 DetectorFactory.seed = 0
+
+
+def fetch_article_content(url: str, timeout: int = 15) -> str:
+    """
+    元記事のURLから本文を取得する
+
+    Args:
+        url: 記事のURL
+        timeout: タイムアウト秒数
+
+    Returns:
+        記事本文のテキスト（取得失敗時は空文字列）
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # 不要な要素を削除
+        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'noscript']):
+            tag.decompose()
+
+        # 記事本文を探す（一般的なセレクタを試す）
+        article_selectors = [
+            'article',
+            '[role="main"]',
+            '.article-body',
+            '.article-content',
+            '.post-content',
+            '.entry-content',
+            '.story-body',
+            'main',
+        ]
+
+        content = None
+        for selector in article_selectors:
+            element = soup.select_one(selector)
+            if element:
+                content = element.get_text(separator='\n', strip=True)
+                if len(content) > 200:  # 十分なコンテンツがあれば採用
+                    break
+
+        # セレクタで見つからない場合はbody全体から
+        if not content or len(content) < 200:
+            body = soup.find('body')
+            if body:
+                content = body.get_text(separator='\n', strip=True)
+
+        if content:
+            # 長すぎる場合は切り詰め（トークン節約）
+            if len(content) > 8000:
+                content = content[:8000] + "..."
+            return content
+
+        return ""
+    except Exception as e:
+        print(f"[警告] 元記事の取得に失敗: {e}")
+        return ""
 BASE = Path(__file__).resolve().parent.parent
 CFG  = yaml.safe_load(open(BASE/"config"/"config.yaml","r",encoding="utf-8"))
 ENV  = dotenv_values(BASE/".env")
@@ -240,6 +303,7 @@ def pick_candidates(top_n=5):
     cand_limit=sel.get("candidate_limit",50)
     scan_per_feed=sel.get("max_scan_per_feed",10)
     cooldown=sel.get("domain_cooldown_days",1)
+    excluded_keywords=sel.get("excluded_keywords",[])
     client=Anthropic(api_key=ENV.get("ANTHROPIC_API_KEY"))
     cands=[]
     for f in feeds:
@@ -254,6 +318,17 @@ def pick_candidates(top_n=5):
             if nlink in posted_urls:
                 continue
             summary=strip_html(getattr(e,"summary","") or getattr(e,"description",""))
+
+            # セール・商業記事の除外チェック
+            text_to_check = (title + " " + summary).lower()
+            is_excluded = False
+            for keyword in excluded_keywords:
+                if keyword.lower() in text_to_check:
+                    is_excluded = True
+                    break
+            if is_excluded:
+                continue
+
             if is_near_duplicate(title, summary, fp_list, sha1_dup=True, simhash_thresh=3, title_sim=0.92):
                 continue
             dom=urlparse(link).netloc
@@ -316,6 +391,14 @@ def main():
         print(f"\n{'='*70}")
         print(f"候補 {idx}/{len(candidates)}: {best['title'][:60]}...")
         print(f"{'='*70}")
+
+        # 元記事の本文を取得
+        print("\n[元記事を取得中...]")
+        article_content = fetch_article_content(best['link'])
+        if article_content:
+            print(f"✅ 元記事を取得しました（{len(article_content)}文字）")
+        else:
+            print("⚠️ 元記事の取得に失敗。RSS要約のみで生成します。")
 
         user=f"""以下の元記事から、わかりやすい日本語ニュース記事を作成してください。
 
@@ -394,6 +477,10 @@ def main():
 - 要約: {best['summary']}
 - ドメイン: {best['domain']}
 - 言語: {best['lang']}
+{f'''
+元記事本文：
+{article_content}
+''' if article_content else '（元記事本文の取得に失敗したため、要約のみを参照してください）'}
 
 HTMLのみで出力してください。Markdown禁止。コードブロックマーカーは使用禁止。""".strip()
 

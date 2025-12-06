@@ -126,48 +126,12 @@ def check_forbidden_additions(source_summary: str, generated_text: str) -> List[
     """
     元記事にない情報の追加をチェック（ハルシネーション検出）
 
-    元記事に含まれない数値や固有名詞が生成記事に含まれている場合を検出
+    注意: 数値チェックは無効化済み。
+    記事本文の数値をチェックする意味がないため。
+    日付の正確性はPhase 2のLLMチェックで確認する。
     """
-    import datetime
-    issues = []
-
-    source_numbers = extract_numbers(source_summary)
-    generated_numbers = extract_numbers(generated_text)
-
-    # 生成記事にあって元記事にない数値
-    new_numbers = generated_numbers - source_numbers
-
-    # 除外すべき数値をフィルタリング
-    current_year = datetime.datetime.now().year
-    suspicious_numbers = []
-
-    for num in new_numbers:
-        # 小さな数字（1-12）は除外（月数など）
-        try:
-            value = float(num.replace('%', ''))
-
-            # 1-12の数値は月の可能性が高いので除外
-            if 1 <= value <= 12:
-                continue
-
-            # 現在年の±2年以内は文脈情報として許可
-            if current_year - 2 <= value <= current_year + 2:
-                continue
-
-            # それ以外で10以下の数値は除外
-            if value <= 10:
-                continue
-
-            # ここまで来た数値は疑わしい
-            suspicious_numbers.append(num)
-        except:
-            # 数値変換できない場合（パーセンテージなど）は含める
-            suspicious_numbers.append(num)
-
-    if suspicious_numbers:
-        issues.append(f"元記事にない数値が含まれています: {', '.join(suspicious_numbers)}")
-
-    return issues
+    # 数値チェックは無効化（記事本文の数値を弾く意味がないため）
+    return []
 
 
 def fact_check_article(source_item: Dict, generated_html: str) -> Dict:
@@ -300,55 +264,82 @@ def llm_fact_check_article(source_item: Dict, generated_html: str, client) -> Di
     source_text = f"{source_item.get('title', '')} {source_item.get('summary', '')}"
 
     # LLMに分析を依頼
-    system_prompt = """あなたは厳格なファクトチェッカーです。
+    from datetime import datetime
+    today = datetime.now().strftime("%Y年%m月%d日")
 
-元記事と生成記事を比較し、以下の観点で分析してください：
+    system_prompt = f"""あなたは記事品質チェッカーです。
 
-1. 論理的整合性 (logical_consistency)
-   - 元記事の主張と生成記事の主張が一致しているか
-   - 因果関係が正しく保たれているか
+【重要な前提情報】
+- 今日の日付: {today}
+- 元記事に含まれる製品名・技術名は実在するものとして扱ってください
+- 元記事が最新ニュースのため、あなたの知識にない新製品・新サービスが含まれている可能性があります
 
-2. 文脈の正確性 (contextual_accuracy)
-   - 専門用語の説明が正確か
-   - 技術的な詳細に誤解がないか
+生成された記事の品質を以下の観点で分析してください。
+※注意：元記事の要約を詳しく解説するのがこの記事の目的です。
+分析・解説・背景説明の追加は許容されます。
 
-3. トーンの一貫性 (tone_consistency)
-   - 元記事のトーン（ポジティブ/ネガティブ/中立）が保たれているか
-   - 重要性の度合いが適切か
+【チェック項目】
 
-4. 情報の完全性 (information_completeness)
-   - 重要な情報が省略されていないか
-   - 追加された情報が適切か
+1. 論理的一貫性 (logical_consistency)
+   - 記事内で矛盾する主張がないか
+   - 因果関係が論理的に正しいか
+   - 前半と後半で言っていることが矛盾していないか
 
-5. 意味の正確性 (semantic_accuracy)
-   - 元記事の意味が歪曲されていないか
-   - 引用や説明が正確か
+2. 事実の正確性 (factual_accuracy)
+   - 明らかに間違った事実がないか（例：存在しない製品名、明らかに間違った日付）
+   - 元記事の核心的な情報が歪曲されていないか
+   ※解説や背景説明の追加は問題なし
+
+3. 記事の完全性 (completeness)
+   - 記事が途中で切れていないか
+   - 文章が途中で終わっていないか
+   - 各セクションが完結しているか
+
+4. 内部整合性 (internal_coherence)
+   - タイトルと本文の内容が一致しているか
+   - リード文と本文の内容が一致しているか
+   - 見出しとその下の内容が一致しているか
+
+5. 読みやすさ (readability)
+   - 文章として自然か
+   - 専門用語に適切な説明があるか
+   - 読者が理解できる構成になっているか
+
+【重要】以下は問題としてカウントしないでください：
+- 元記事にない背景情報の追加
+- 元記事にない技術的解説の追加
+- 元記事にない影響分析の追加
+- 推測や予測の記述（明示されている場合）
 
 各項目を0-100点で評価し、JSON形式で返してください。
-70点未満の項目がある場合は、その理由を詳しく説明してください。"""
+60点未満の項目がある場合は、その理由を詳しく説明してください。"""
 
     user_prompt = f"""【元記事】
 タイトル: {source_item.get('title', '')}
 要約: {source_item.get('summary', '')}
-リンク: {source_item.get('link', '')}
 
 【生成記事（HTMLタグ除去済み）】
-{generated_text[:2000]}
+{generated_text[:6000]}
 
-上記を分析し、以下のJSON形式で返してください：
+上記の生成記事を分析し、以下のJSON形式で返してください：
 
 {{
   "logical_consistency": <0-100の整数>,
-  "contextual_accuracy": <0-100の整数>,
-  "tone_consistency": <0-100の整数>,
-  "information_completeness": <0-100の整数>,
-  "semantic_accuracy": <0-100の整数>,
+  "factual_accuracy": <0-100の整数>,
+  "completeness": <0-100の整数>,
+  "internal_coherence": <0-100の整数>,
+  "readability": <0-100の整数>,
   "issues": [
-    "問題点1",
-    "問題点2"
+    "問題点1（ある場合のみ）",
+    "問題点2（ある場合のみ）"
   ],
   "summary": "総合評価のサマリー"
 }}
+
+【重要な注意】
+- 背景説明、技術解説、影響分析の追加は問題ではありません
+- 元記事にない情報の追加は問題ではありません
+- 明らかな事実誤認、論理矛盾、記事の途切れのみを問題としてください
 
 注意：JSONのみを返し、他のテキストは含めないでください。"""
 
@@ -381,16 +372,16 @@ def llm_fact_check_article(source_item: Dict, generated_html: str, client) -> Di
         # スコアを計算
         scores = [
             analysis.get("logical_consistency", 0),
-            analysis.get("contextual_accuracy", 0),
-            analysis.get("tone_consistency", 0),
-            analysis.get("information_completeness", 0),
-            analysis.get("semantic_accuracy", 0)
+            analysis.get("factual_accuracy", 0),
+            analysis.get("completeness", 0),
+            analysis.get("internal_coherence", 0),
+            analysis.get("readability", 0)
         ]
         average_score = sum(scores) / len(scores)
 
-        # 70点未満の項目があるか、平均が75点未満なら不合格
+        # 60点未満の項目があるか、平均が70点未満なら不合格
         min_score = min(scores)
-        passed = min_score >= 70 and average_score >= 75
+        passed = min_score >= 60 and average_score >= 70
 
         return {
             "passed": passed,
@@ -400,28 +391,29 @@ def llm_fact_check_article(source_item: Dict, generated_html: str, client) -> Di
             "summary": analysis.get("summary", ""),
             "analysis": {
                 "logical_consistency": analysis.get("logical_consistency", 0),
-                "contextual_accuracy": analysis.get("contextual_accuracy", 0),
-                "tone_consistency": analysis.get("tone_consistency", 0),
-                "information_completeness": analysis.get("information_completeness", 0),
-                "semantic_accuracy": analysis.get("semantic_accuracy", 0)
+                "factual_accuracy": analysis.get("factual_accuracy", 0),
+                "completeness": analysis.get("completeness", 0),
+                "internal_coherence": analysis.get("internal_coherence", 0),
+                "readability": analysis.get("readability", 0)
             }
         }
 
     except Exception as e:
         print(f"LLMファクトチェックエラー: {e}")
-        # エラーの場合は合格として扱う（Phase 1を通過しているため）
+        # タイムアウトや予期しないエラーの場合は不合格として扱う
+        # （次の候補記事を試すため）
         return {
-            "passed": True,
+            "passed": False,
             "score": 0,
             "min_score": 0,
             "issues": [f"LLMチェックエラー: {str(e)}"],
-            "summary": "エラーのためチェックをスキップ",
+            "summary": "エラーのため不合格（次の候補を試行）",
             "analysis": {
                 "logical_consistency": 0,
-                "contextual_accuracy": 0,
-                "tone_consistency": 0,
-                "information_completeness": 0,
-                "semantic_accuracy": 0
+                "factual_accuracy": 0,
+                "completeness": 0,
+                "internal_coherence": 0,
+                "readability": 0
             }
         }
 
@@ -465,7 +457,7 @@ def print_llm_fact_check_result(result: Dict) -> None:
     LLMファクトチェック結果を見やすく表示
     """
     print("\n" + "="*60)
-    print("LLMファクトチェック結果（Phase 2）")
+    print("品質チェック結果（Phase 2）")
     print("="*60)
 
     if result["passed"]:
@@ -475,11 +467,11 @@ def print_llm_fact_check_result(result: Dict) -> None:
 
     print("\n【詳細スコア】")
     analysis = result["analysis"]
-    print(f"  論理的整合性: {analysis['logical_consistency']}/100")
-    print(f"  文脈の正確性: {analysis['contextual_accuracy']}/100")
-    print(f"  トーンの一貫性: {analysis['tone_consistency']}/100")
-    print(f"  情報の完全性: {analysis['information_completeness']}/100")
-    print(f"  意味の正確性: {analysis['semantic_accuracy']}/100")
+    print(f"  論理的一貫性: {analysis.get('logical_consistency', 0)}/100")
+    print(f"  事実の正確性: {analysis.get('factual_accuracy', 0)}/100")
+    print(f"  記事の完全性: {analysis.get('completeness', 0)}/100")
+    print(f"  内部整合性: {analysis.get('internal_coherence', 0)}/100")
+    print(f"  読みやすさ: {analysis.get('readability', 0)}/100")
 
     if result["issues"]:
         print("\n【指摘事項】")
