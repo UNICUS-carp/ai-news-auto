@@ -187,7 +187,7 @@ WordPress site with REST API enabled
 
 ```bash
 # Clone repository
-git clone https://github.com/UNICUS-carp/ai-news-auto.git
+git clone https://github.com/UNICUS-dev/ai-news-auto.git
 cd ai-news-auto
 
 # Install dependencies
@@ -347,7 +347,7 @@ MIT License - See LICENSE file for details
 
 ## 👨‍💻 Author
 
-**Developed by**: Takahashi Akihiro (UNICUS-carp)
+**Developed by**: Takahashi Akihiro (UNICUS-dev)
 
 **Technical Highlights**:
 - Full-stack automation engineer
